@@ -75,10 +75,17 @@ Pomona = SC.Object.create(
 			// that use a specialized hash function
 			
 			this._reconnectWith = "";
-			this._uid = "";
+			this._uid = "NONE";
 			
 			// begin the comet loop
-			this._beginNextRequest();
+		  this._beginNextRequest();
+		},
+		
+		/**
+		Retrieves the current Dolores id, or null if there is none.
+		*/
+		getDoloresId: function() {
+		  return (this._uid == "NONE" ? null : this._uid);
 		},
 		
 		_beginNextRequest: function() {
@@ -99,6 +106,7 @@ Pomona = SC.Object.create(
 		
 		_receive: function(response) {
 			// get response body, if possible. Default path=failure.
+			var first = false;
 			var body = response.get("body");
 			if (body) {
 				// get the reconnection thingy. We don't care if we were disconnected. We'll
@@ -111,10 +119,11 @@ Pomona = SC.Object.create(
 					
 					// only reconnect if we actually disconnected.
 					if (uid != this._uid) {
+					  first = true;
 						this._uid = uid;
 						this._establishConnections();
 					}
-				} else this._uid = "";
+				} else this._uid = "NONE";
 				
 				// handle updates
 				var updates = body.updates; // should at least exist.
@@ -126,7 +135,12 @@ Pomona = SC.Object.create(
 					}
 					
 					// and start all over again.
-					this._beginNextRequest();
+					// if first time, however, wait (to try to get around loading indicator issues)
+					SC.Timer.schedule({
+					  target: this,
+					  action: "_beginNextRequest",
+					  interval: 5000
+					});
 					
 					// all is well
 					return;
@@ -151,10 +165,18 @@ Pomona = SC.Object.create(
 			}
 			
 			// send connect signal
-			this._connect(connect);
+			this.requestAttachments(connect);
 		},
 		
-		_connect: function(connections) {
+		/**
+		Sends attachment requests to server. You may want to override if you want to
+		change how it requests the attachments from the server. For instance, if the
+		server will both connect the client _and_ send the results of a query associated
+		with the connection, you'd want to make a custom version of this.
+		
+		connections is a simple array of string attach points.
+		*/
+		requestAttachments: function(connections) {
 			// get url
 			var curl = this.connectUrl;
 			var url = curl.fmt(this._uid);
@@ -164,7 +186,7 @@ Pomona = SC.Object.create(
 				.send(connections);
 		},
 		
-		_disconnect: function(connections) {
+		requestDetachments: function(connections) {
 			// get url
 			var dcurl = this.disconnectUrl;
 			var url = dcurl.fmt(this._uid);
@@ -202,10 +224,9 @@ Pomona = SC.Object.create(
 		},
 		
 		_attach: function(path) {
-			// todo: add  delay before calling _connect so we can bundle connect requests...
-			if (this._uid && this._uid !== "") {
-				console.error("CONNECT!");
-				this._connect([path]);
+			// todo: add  delay before calling requestAttachments so we can bundle connect requests...
+			if (this._uid && this._uid !== "NONE") {
+				this.requestAttachments([path]);
 			}
 			
 			// add to attachments
@@ -213,8 +234,8 @@ Pomona = SC.Object.create(
 		},
 		
 		_detach: function(path) {
-			if (this._uid && this._uid !== "") {
-				this._disconnect([path]);
+			if (this._uid && this._uid !== "NONE") {
+				this.requestDetachments([path]);
 			}
 			
 			delete this._attachments[path];
